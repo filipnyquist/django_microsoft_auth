@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 
 from django.contrib.sites.models import Site
 from django.core.cache import cache
@@ -176,13 +177,29 @@ class MicrosoftClient(OAuth2Session):
         return built_auth_url
 
     def fetch_token(self, **kwargs):
-        """Fetchs OAuth2 Token with given kwargs"""
+        """Fetches OAuth2 Token with given kwargs
 
-        return super().fetch_token(  # pragma: no cover
-            self.openid_config["token_endpoint"],
-            client_secret=self.config.MICROSOFT_AUTH_CLIENT_SECRET,
-            **kwargs,
-        )
+        Microsoft's OAuth server may return additional scopes (like User.Read)
+        beyond what was requested. This triggers a scope mismatch warning in
+        oauthlib. Setting OAUTHLIB_RELAX_TOKEN_SCOPE prevents this warning.
+        See: https://github.com/oauthlib/oauthlib/issues/732
+        """
+        # Temporarily set OAUTHLIB_RELAX_TOKEN_SCOPE to prevent scope mismatch
+        # warnings when Microsoft returns additional scopes
+        old_value = os.environ.get("OAUTHLIB_RELAX_TOKEN_SCOPE")
+        os.environ["OAUTHLIB_RELAX_TOKEN_SCOPE"] = "1"
+        try:
+            return super().fetch_token(  # pragma: no cover
+                self.openid_config["token_endpoint"],
+                client_secret=self.config.MICROSOFT_AUTH_CLIENT_SECRET,
+                **kwargs,
+            )
+        finally:
+            # Restore the original environment variable state
+            if old_value is None:
+                os.environ.pop("OAUTHLIB_RELAX_TOKEN_SCOPE", None)
+            else:
+                os.environ["OAUTHLIB_RELAX_TOKEN_SCOPE"] = old_value
 
     def fetch_xbox_token(self):
         """Fetches Xbox Live Auth token.

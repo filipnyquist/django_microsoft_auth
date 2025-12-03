@@ -1,4 +1,5 @@
 import json
+import os
 from unittest.mock import Mock, patch
 import urllib.parse
 from urllib.parse import parse_qs, urlparse
@@ -277,3 +278,62 @@ class ClientTests(TestCase):
         auth_client = MicrosoftClient(state=STATE)
         base_url = auth_client.openid_config["authorization_endpoint"]
         self.assertRaises(TypeError, self._get_auth_url(base_url, extra_args=[]))
+
+    @patch.object(MicrosoftClient, "openid_config", {"token_endpoint": "https://test"})
+    @patch("requests_oauthlib.OAuth2Session.fetch_token")
+    def test_fetch_token_sets_relax_token_scope(self, mock_fetch_token):
+        """Test that fetch_token sets OAUTHLIB_RELAX_TOKEN_SCOPE env var"""
+        # Ensure the env var is not set before the test
+        env_var_name = "OAUTHLIB_RELAX_TOKEN_SCOPE"
+        original_value = os.environ.pop(env_var_name, None)
+
+        captured_env_value = None
+
+        def capture_env_value(*args, **kwargs):
+            nonlocal captured_env_value
+            captured_env_value = os.environ.get(env_var_name)
+            return {"access_token": "test", "scope": ["User.Read", "openid"]}
+
+        mock_fetch_token.side_effect = capture_env_value
+
+        try:
+            auth_client = MicrosoftClient()
+            auth_client.fetch_token(code="test_code")
+
+            # Verify the env var was set during fetch_token call
+            self.assertEqual(captured_env_value, "1")
+
+            # Verify the env var is cleaned up after fetch_token call
+            self.assertIsNone(os.environ.get(env_var_name))
+        finally:
+            # Restore original value if it existed
+            if original_value is not None:
+                os.environ[env_var_name] = original_value
+
+    @patch.object(MicrosoftClient, "openid_config", {"token_endpoint": "https://test"})
+    @patch("requests_oauthlib.OAuth2Session.fetch_token")
+    def test_fetch_token_restores_existing_relax_token_scope(self, mock_fetch_token):
+        """Test that fetch_token restores existing OAUTHLIB_RELAX_TOKEN_SCOPE"""
+        env_var_name = "OAUTHLIB_RELAX_TOKEN_SCOPE"
+        original_value = os.environ.get(env_var_name)
+
+        # Set a custom value that should be restored after fetch_token
+        os.environ[env_var_name] = "custom_value"
+
+        mock_fetch_token.return_value = {
+            "access_token": "test",
+            "scope": ["User.Read"],
+        }
+
+        try:
+            auth_client = MicrosoftClient()
+            auth_client.fetch_token(code="test_code")
+
+            # Verify the env var is restored to its original custom value
+            self.assertEqual(os.environ.get(env_var_name), "custom_value")
+        finally:
+            # Restore original value
+            if original_value is None:
+                os.environ.pop(env_var_name, None)
+            else:
+                os.environ[env_var_name] = original_value
