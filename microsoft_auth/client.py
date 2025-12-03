@@ -177,7 +177,7 @@ class MicrosoftClient(OAuth2Session):
         return built_auth_url
 
     def fetch_token(self, **kwargs):
-        """Fetchs OAuth2 Token with given kwargs
+        """Fetches OAuth2 Token with given kwargs
 
         Microsoft's OAuth server may return additional scopes (like User.Read)
         beyond what was requested. This triggers a scope mismatch warning in
